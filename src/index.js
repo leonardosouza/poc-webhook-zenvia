@@ -1,10 +1,38 @@
+require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
+const morgan = require('morgan');
+const crypto = require('crypto');
 
 const app = express();
-const PORT = process.env.PORT || 80;
+const PORT = process.env.PORT || 3000;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
+
+// Middleware CORS
+app.use(cors());
+
+// Middleware de logging HTTP
+app.use(morgan('combined'));
 
 // Middleware para parsear JSON com limite de tamanho
 app.use(express.json({ limit: '1mb' }));
+
+// Função para validar assinatura do webhook Zenvia
+const validateWebhookSignature = (payload, signature, secret) => {
+  if (!secret) return true; // Se não houver secret configurado, aceita (dev mode)
+  if (!signature) return false;
+
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(JSON.stringify(payload))
+    .digest('hex');
+
+  const signatureHash = signature.replace('sha256=', '');
+  return crypto.timingSafeEqual(
+    Buffer.from(signatureHash, 'hex'),
+    Buffer.from(expectedSignature, 'hex')
+  );
+};
 
 // Middleware de tratamento de erros de parsing JSON
 app.use((err, req, res, next) => {
@@ -14,6 +42,7 @@ app.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ error: 'Payload muito grande' });
   }
+  /* istanbul ignore next */
   next(err);
 });
 
@@ -42,21 +71,28 @@ app.post('/api/echo', (req, res) => {
 
 // Rota de webhook
 app.post('/webhook', (req, res) => {
+  // Validar assinatura do webhook (se WEBHOOK_SECRET estiver configurado)
+  const signature = req.get('X-Hub-Signature-256') || req.get('x-hub-signature-256');
+  if (WEBHOOK_SECRET && !validateWebhookSignature(req.body, signature, WEBHOOK_SECRET)) {
+    console.warn('Webhook recebido com assinatura inválida');
+    return res.status(401).json({ error: 'Assinatura inválida' });
+  }
+
   // Capturar origin considerando proxy (ngrok)
-  const origin = req.get('X-Forwarded-For') || 
-                 req.get('x-forwarded-for') || 
-                 req.get('origin') || 
-                 req.ip || 
+  const origin = req.get('X-Forwarded-For') ||
+                 req.get('x-forwarded-for') ||
+                 req.get('origin') ||
+                 req.ip ||
                  'unknown';
-  
-  const protocol = req.get('X-Forwarded-Proto') || 
-                   req.get('x-forwarded-proto') || 
+
+  const protocol = req.get('X-Forwarded-Proto') ||
+                   req.get('x-forwarded-proto') ||
                    req.protocol;
-  
-  const host = req.get('X-Forwarded-Host') || 
-               req.get('x-forwarded-host') || 
+
+  const host = req.get('X-Forwarded-Host') ||
+               req.get('x-forwarded-host') ||
                req.get('host');
-  
+
   console.log('\n=== Webhook Recebido ===');
   console.log('Timestamp:', new Date().toISOString());
   console.log('URL Original:', `${protocol}://${host}${req.originalUrl}`);
@@ -64,7 +100,7 @@ app.post('/webhook', (req, res) => {
   console.log('Headers:', JSON.stringify(req.headers, null, 2));
   console.log('Body:', JSON.stringify(req.body, null, 2));
   console.log('=======================\n');
-  
+
   res.status(200).json({
     message: 'Webhook recebido com sucesso',
     timestamp: new Date().toISOString(),
@@ -97,6 +133,7 @@ const startServer = () => {
     });
 
     // Força encerramento após 10 segundos
+    /* istanbul ignore next */
     setTimeout(() => {
       console.error('Encerramento forçado após timeout.');
       process.exit(1);
@@ -110,9 +147,10 @@ const startServer = () => {
 };
 
 // Inicia servidor se executado diretamente (não importado para testes)
+/* istanbul ignore if */
 if (require.main === module) {
   startServer();
 }
 
-// Exporta app e função para testes
-module.exports = { app, startServer };
+// Exporta app e funções para testes
+module.exports = { app, startServer, validateWebhookSignature };

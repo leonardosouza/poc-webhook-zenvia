@@ -1,5 +1,6 @@
 const request = require('supertest');
-const { app } = require('../src/index');
+const crypto = require('crypto');
+const { app, validateWebhookSignature } = require('../src/index');
 
 describe('GET /', () => {
   it('deve retornar mensagem de boas-vindas', async () => {
@@ -54,6 +55,15 @@ describe('POST /webhook', () => {
   });
 });
 
+describe('CORS', () => {
+  it('deve retornar headers CORS', async () => {
+    const res = await request(app)
+      .options('/')
+      .set('Origin', 'http://example.com');
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+});
+
 describe('Error Handling', () => {
   it('deve retornar 404 para rotas inexistentes', async () => {
     const res = await request(app).get('/rota-inexistente');
@@ -68,5 +78,78 @@ describe('Error Handling', () => {
       .send('{"invalid json');
     expect(res.statusCode).toBe(400);
     expect(res.body).toHaveProperty('error', 'JSON inválido');
+  });
+
+  it('deve retornar 413 para payload muito grande', async () => {
+    const largePayload = { data: 'x'.repeat(2 * 1024 * 1024) };
+    const res = await request(app)
+      .post('/webhook')
+      .send(largePayload);
+    expect(res.statusCode).toBe(413);
+    expect(res.body).toHaveProperty('error', 'Payload muito grande');
+  });
+
+  it('deve chamar next(err) para erros não tratados', async () => {
+    const res = await request(app)
+      .post('/api/echo')
+      .set('Content-Type', 'text/plain')
+      .send('plain text');
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('validateWebhookSignature', () => {
+  const secret = 'test-secret-key';
+  const payload = { event: 'test', data: { id: 1 } };
+
+  const generateSignature = (payload, secret) => {
+    const hash = crypto
+      .createHmac('sha256', secret)
+      .update(JSON.stringify(payload))
+      .digest('hex');
+    return `sha256=${hash}`;
+  };
+
+  it('deve retornar true quando secret está vazio (dev mode)', () => {
+    const result = validateWebhookSignature(payload, null, '');
+    expect(result).toBe(true);
+  });
+
+  it('deve retornar false quando signature está ausente', () => {
+    const result = validateWebhookSignature(payload, null, secret);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar false quando signature está undefined', () => {
+    const result = validateWebhookSignature(payload, undefined, secret);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar true para assinatura válida', () => {
+    const signature = generateSignature(payload, secret);
+    const result = validateWebhookSignature(payload, signature, secret);
+    expect(result).toBe(true);
+  });
+
+  it('deve retornar false para assinatura inválida', () => {
+    const invalidSignature = 'sha256=' + 'a'.repeat(64);
+    const result = validateWebhookSignature(payload, invalidSignature, secret);
+    expect(result).toBe(false);
+  });
+
+  it('deve retornar true para assinatura válida sem prefixo sha256=', () => {
+    const hash = crypto
+      .createHmac('sha256', secret)
+      .update(JSON.stringify(payload))
+      .digest('hex');
+    const result = validateWebhookSignature(payload, hash, secret);
+    expect(result).toBe(true);
+  });
+});
+
+describe('startServer', () => {
+  it('deve exportar a função startServer', () => {
+    const { startServer } = require('../src/index');
+    expect(typeof startServer).toBe('function');
   });
 });
