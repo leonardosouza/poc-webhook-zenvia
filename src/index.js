@@ -3,8 +3,19 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 80;
 
-// Middleware para parsear JSON
-app.use(express.json());
+// Middleware para parsear JSON com limite de tamanho
+app.use(express.json({ limit: '1mb' }));
+
+// Middleware de tratamento de erros de parsing JSON
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ error: 'JSON inválido' });
+  }
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Payload muito grande' });
+  }
+  next(err);
+});
 
 // Rota raiz
 app.get('/', (req, res) => {
@@ -69,7 +80,39 @@ app.use((req, res) => {
   });
 });
 
-// Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
+// Iniciar servidor apenas quando executado diretamente
+let server;
+
+const startServer = () => {
+  server = app.listen(PORT, () => {
+    console.log(`Servidor rodando em http://localhost:${PORT}`);
+  });
+
+  // Graceful shutdown
+  const gracefulShutdown = (signal) => {
+    console.log(`\n${signal} recebido. Encerrando servidor...`);
+    server.close(() => {
+      console.log('Servidor encerrado com sucesso.');
+      process.exit(0);
+    });
+
+    // Força encerramento após 10 segundos
+    setTimeout(() => {
+      console.error('Encerramento forçado após timeout.');
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  return server;
+};
+
+// Inicia servidor se executado diretamente (não importado para testes)
+if (require.main === module) {
+  startServer();
+}
+
+// Exporta app e função para testes
+module.exports = { app, startServer };
