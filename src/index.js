@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,7 +35,7 @@ const validateWebhookSignature = (payload, signature, secret) => {
 };
 
 // Middleware de tratamento de erros de parsing JSON
-app.use((err, req, res, next) => {
+app.use((err, _req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
     return res.status(400).json({ error: 'JSON inválido' });
   }
@@ -47,7 +47,7 @@ app.use((err, req, res, next) => {
 });
 
 // Rota raiz
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     message: 'Bem-vindo ao projeto Express!',
     version: '1.0.0'
@@ -55,7 +55,7 @@ app.get('/', (req, res) => {
 });
 
 // Rota de exemplo
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.status(200).json({
     status: 'OK',
     timestamp: new Date().toISOString()
@@ -79,19 +79,16 @@ app.post('/webhook', (req, res) => {
   }
 
   // Capturar origin considerando proxy (ngrok)
-  const origin = req.get('X-Forwarded-For') ||
-                 req.get('x-forwarded-for') ||
-                 req.get('origin') ||
-                 req.ip ||
-                 'unknown';
+  const origin =
+    req.get('X-Forwarded-For') ||
+    req.get('x-forwarded-for') ||
+    req.get('origin') ||
+    req.ip ||
+    'unknown';
 
-  const protocol = req.get('X-Forwarded-Proto') ||
-                   req.get('x-forwarded-proto') ||
-                   req.protocol;
+  const protocol = req.get('X-Forwarded-Proto') || req.get('x-forwarded-proto') || req.protocol;
 
-  const host = req.get('X-Forwarded-Host') ||
-               req.get('x-forwarded-host') ||
-               req.get('host');
+  const host = req.get('X-Forwarded-Host') || req.get('x-forwarded-host') || req.get('host');
 
   console.log('\n=== Webhook Recebido ===');
   console.log('Timestamp:', new Date().toISOString());
@@ -110,7 +107,7 @@ app.post('/webhook', (req, res) => {
 });
 
 // Tratamento de rotas não encontradas
-app.use((req, res) => {
+app.use((_req, res) => {
   res.status(404).json({
     error: 'Rota não encontrada'
   });

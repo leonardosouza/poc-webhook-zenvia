@@ -1,4 +1,4 @@
-const http = require('http');
+const _http = require('node:http');
 
 describe('Server Lifecycle', () => {
   let originalEnv;

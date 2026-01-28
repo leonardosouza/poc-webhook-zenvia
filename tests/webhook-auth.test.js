@@ -1,5 +1,5 @@
 const request = require('supertest');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 
 describe('Webhook com autenticação', () => {
   let app;
@@ -18,24 +18,19 @@ describe('Webhook com autenticação', () => {
   });
 
   const generateSignature = (payload, secret) => {
-    const hash = crypto
-      .createHmac('sha256', secret)
-      .update(JSON.stringify(payload))
-      .digest('hex');
+    const hash = crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
     return `sha256=${hash}`;
   };
 
   it('deve retornar 401 para webhook sem assinatura', async () => {
-    const res = await request(app)
-      .post('/webhook')
-      .send({ event: 'test' });
+    const res = await request(app).post('/webhook').send({ event: 'test' });
     expect(res.statusCode).toBe(401);
     expect(res.body).toHaveProperty('error', 'Assinatura inválida');
   });
 
   it('deve retornar 401 para webhook com assinatura inválida', async () => {
     // Assinatura inválida mas com formato hex válido (64 caracteres hex)
-    const invalidSignature = 'sha256=' + 'a'.repeat(64);
+    const invalidSignature = `sha256=${'a'.repeat(64)}`;
     const res = await request(app)
       .post('/webhook')
       .set('X-Hub-Signature-256', invalidSignature)
